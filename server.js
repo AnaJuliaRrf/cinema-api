@@ -41,10 +41,15 @@ app.get("/criar-tabela-ingressos", async (req, res) => {
     await pool.query(`
       create table if not exists ingressos (
         id serial primary key,
+        id_cliente text not null unique,
         valor numeric(10,2) not null,
-        numero_sala integer not null
-      )
+        numero_sala integer not null)
     `);
+
+    // a tabela já existia sem id_cliente: adiciona a coluna sem perder dados
+    await pool.query(
+      "alter table ingressos add column if not exists id_cliente text unique",
+    );
 
     res.json({
       mensagem: "Tabela ingressos criada com sucesso",
@@ -58,11 +63,16 @@ app.get("/criar-tabela-ingressos", async (req, res) => {
   }
 });
 
+await pool.query(
+  "alter table ingressos add column if not exists id_cliente text unique",
+);
+
+
 app.get("/ingressos", async (req, res) => {
   try {
     const resultado = await pool.query(
-      "select id, valor, numero_sala from ingressos order by id desc",
-    );
+      "select id, id_cliente, valor, numero_sala from ingressos order by id desc",
+      );
 
     res.json(resultado.rows);
   } catch (erro) {
@@ -76,27 +86,41 @@ app.get("/ingressos", async (req, res) => {
 
 app.post("/ingressos", async (req, res) => {
   try {
-    const { valor, numeroSala } = req.body;
+      const { idCliente, valor, numeroSala } = req.body;
 
-    if (!valor || !numeroSala) {
-      return res.status(400).json({
-        erro: "valor e numeroSala são obrigatórios",
-      });
-    }
+  if (!idCliente || !valor || !numeroSala) {
+    return res.status(400).json({
+      erro: "idCliente, valor e numeroSala são obrigatórios",
+    });
+  }
 
-    const resultado = await pool.query(
-      `insert into ingressos (valor, numero_sala)
-       values ($1, $2)
-       returning id, valor, numero_sala`,
-      [valor, numeroSala],
+  const resultado = await pool.query(
+    `insert into ingressos (id_cliente, valor, numero_sala)
+    values ($1, $2, $3)
+    on conflict (id_cliente) do nothing
+    returning id, id_cliente, valor, numero_sala`,
+    [idCliente, valor, numeroSala],
+  );
+
+  if (resultado.rows.length === 0) {
+    // esse idCliente já existia: não duplica e responde sucesso
+    const existente = await pool.query(
+      "select id, id_cliente, valor, numero_sala from ingressos where id_cliente = $1",
+      [idCliente],
     );
 
-    res.status(201).json({
-      mensagem: "Ingresso cadastrado com sucesso",
-      ingresso: resultado.rows[0],
+    return res.status(200).json({
+      mensagem: "Ingresso já estava sincronizado",
+      ingresso: existente.rows[0],
     });
+  }
+
+  res.status(201).json({
+    mensagem: "Ingresso cadastrado com sucesso",
+    ingresso: resultado.rows[0],
+  });
   } catch (erro) {
-    console.error("Erro ao cadastrar Ingresso:", erro);
+    console.error("Erro ao cadastrar ingresso:", erro);
 
     res.status(500).json({
       erro: "Erro Interno do Servidor...",
