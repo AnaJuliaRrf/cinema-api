@@ -63,11 +63,6 @@ app.get("/criar-tabela-ingressos", async (req, res) => {
   }
 });
 
-await pool.query(
-  "alter table ingressos add column if not exists id_cliente text unique",
-);
-
-
 app.get("/ingressos", async (req, res) => {
   try {
     const resultado = await pool.query(
